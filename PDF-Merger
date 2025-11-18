@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang=“de“>
+<head>
+<meta charset=“utf-8″ />
+<meta name=“viewport“ content=“width=device-width, initial-scale=1″ />
+<title>PDFs zusammenfügen</title>
+<style>
+body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+.dropzone { border: 2px dashed #bbb; padding: 1.25rem; border-radius: .6rem; text-align: center; background: #fafafa; }
+.row { display: flex; gap: .5rem; align-items: center; justify-content: center; flex-wrap: wrap; }
+button { padding: .55rem .9rem; border-radius: .45rem; border: 1px solid #ccc; background: #f6f6f6; cursor: pointer; }
+button:disabled { opacity: .6; cursor: not-allowed; }
+ol { padding-left: 1.25rem; }
+.file-item { display: flex; align-items: center; gap: .5rem; margin: .25rem 0; }
+.file-meta { color: #555; font-size: .9rem; }
+.small { font-size: .85rem; color: #666; }
+.status { margin-top: .5rem; min-height: 1.2em; color: #444; }
+</style>
+</head>
+<body>
+<h1>PDF-Dateien zusammenfügen</h1>
+
+<div class=“dropzone“ id=“dropzone“>
+<p><strong>PDFs hierher ziehen</strong> oder Dateien auswählen:</p>
+<div class=“row“>
+<input id=“fileInput“ type=“file“ accept=“application/pdf,.pdf“ multiple />
+<button id=“mergeBtn“ disabled>Zusammenfügen</button>
+</div>
+<p class=“small“>Tipp: Du kannst nacheinander weitere PDFs hinzufügen. Die Reihenfolge kannst du unten ändern.</p>
+<div id=“status“ class=“status“></div>
+</div>
+
+<h2>Ausgewählte Dateien</h2>
+<div id=“fileList“></div>
+
+<!– UMD-Bundle von pdf-lib (keine ES-Module nötig) –>
+<script src=“https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js“></script>
+<script>
+// Kurzreferenzen
+const input = document.getElementById(‚fileInput‘);
+const list = document.getElementById(‚fileList‘);
+const mergeBtn = document.getElementById(‚mergeBtn‘);
+const dropzone = document.getElementById(‚dropzone‘);
+const statusEl = document.getElementById(’status‘);
+
+// Zustand
+let files = []; // [{file, id}]
+let idSeq = 0;
+
+// Hilfen
+const fmtMB = b => (b/1024/1024).toFixed(2) + ‚ MB‘;
+const dedupeKey = f => `${f.name}|${f.size}|${f.lastModified}`;
+
+function renderList() {
+if (!files.length) {
+list.innerHTML = ‚<p class=“small“>Noch keine Dateien ausgewählt.</p>‘;
+mergeBtn.disabled = true;
+return;
+}
+mergeBtn.disabled = false;
+
+const ol = document.createElement(‚ol‘);
+files.forEach((entry, idx) => {
+const li = document.createElement(‚li‘);
+li.className = ‚file-item‘;
+li.innerHTML = `
+<span>${entry.file.name}</span>
+<span class=“file-meta“>(${fmtMB(entry.file.size)})</span>
+<span class=“small“>#${idx+1}</span>
+`;
+const up = document.createElement(‚button‘); up.textContent = ‚▲‘;
+const down = document.createElement(‚button‘); down.textContent = ‚▼‘;
+const del = document.createElement(‚button‘); del.textContent = ‚Entfernen‘;
+
+up.onclick = () => { if (idx>0) { [files[idx-1], files[idx]] = [files[idx], files[idx-1]]; renderList(); } };
+down.onclick = () => { if (idx<files.length-1) { [files[idx+1], files[idx]] = [files[idx], files[idx+1]]; renderList(); } };
+del.onclick = () => { files.splice(idx,1); renderList(); };
+
+li.appendChild(up); li.appendChild(down); li.appendChild(del);
+ol.appendChild(li);
+});
+list.innerHTML = “;
+list.appendChild(ol);
+}
+
+function addFiles(fileList) {
+const incoming = Array.from(fileList).filter(f => {
+// Manche Browser setzen type nicht -> zusätzlich .pdf-Endung erlauben
+const isPdf = f.type === ‚application/pdf‘ || /\.pdf$/i.test(f.name);
+return isPdf;
+});
+// Deduplizieren nach Name|Size|lastModified
+const existing = new Set(files.map(x => dedupeKey(x.file)));
+for (const f of incoming) {
+const key = dedupeKey(f);
+if (!existing.has(key)) {
+files.push({ file: f, id: ++idSeq });
+existing.add(key);
+}
+}
+renderList();
+input.value = “; // damit dieselbe Datei erneut gewählt werden kann (manche Browser blocken sonst)
+}
+
+input.addEventListener(‚change‘, (e) => addFiles(e.target.files));
+
+// Drag & drop
+[‚dragenter‘,’dragover‘].forEach(ev => dropzone.addEventListener(ev, e => {
+e.preventDefault(); e.dataTransfer.dropEffect = ‚copy‘; dropzone.style.background = ‚#fff‘;
+}));
+[‚dragleave‘,’drop‘].forEach(ev => dropzone.addEventListener(ev, e => {
+e.preventDefault(); dropzone.style.background = ‚#fafafa‘;
+}));
+dropzone.addEventListener(‚drop‘, (e) => addFiles(e.dataTransfer.files));
+
+async function merge() {
+if (!files.length) return;
+mergeBtn.disabled = true;
+statusEl.textContent = ‚Füge zusammen … bitte warten‘;
+
+try {
+const { PDFDocument } = window.PDFLib;
+const merged = await PDFDocument.create();
+
+for (const { file } of files) {
+const arrayBuf = await file.arrayBuffer();
+const src = await PDFDocument.load(arrayBuf, { ignoreEncryption: false });
+const pages = await merged.copyPages(src, src.getPageIndices());
+pages.forEach(p => merged.addPage(p));
+}
+
+const out = await merged.save();
+const blob = new Blob([out], { type: ‚application/pdf‘ });
+
+const a = document.createElement(‚a‘);
+a.href = URL.createObjectURL(blob);
+a.download = ‚zusammengefuegt.pdf‘;
+document.body.appendChild(a);
+a.click();
+URL.revokeObjectURL(a.href);
+a.remove();
+
+statusEl.textContent = ‚Fertig. Die Datei wurde heruntergeladen.‘;
+} catch (err) {
+console.error(err);
+statusEl.textContent = ‚Fehler beim Zusammenfügen (evtl. verschlüsselte/defekte PDF?).‘;
+alert(‚Zusammenfügen fehlgeschlagen. Details in der Konsole.‘);
+} finally {
+mergeBtn.disabled = files.length === 0;
+// Beschriftung bleibt „Zusammenfügen“
+}
+}
+
+mergeBtn.addEventListener(‚click‘, merge);
+renderList();
+</script>
+</body>
+</html>
