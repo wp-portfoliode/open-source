@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang=“de“>
+<head>
+<meta charset=“utf-8″ />
+<meta name=“viewport“ content=“width=device-width,initial-scale=1″ />
+<title>Blockjäger</title>
+<style>
+#blockjaeger{–bg:#0b1020;–panel:#0f1630;–text:#e8f0ff;–accent:#7aa2ff;–muted:#96a0c2;–good:#33d17a;–warn:#ffd166;–bad:#ff6b6b}
+#blockjaeger *{box-sizing:border-box;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,Apple Color Emoji,Segoe UI Emoji}
+#blockjaeger .wrap{max-width:960px;margin:0 auto;padding:16px}
+#blockjaeger .game-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px auto;max-width:960px}
+#blockjaeger .title{font-size:22px;font-weight:700;color:var(–text)}
+#blockjaeger .panel{background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:12px;box-shadow:0 12px 30px rgba(0,0,0,.35)}
+#blockjaeger .hud{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center}
+#blockjaeger .chip{color:var(–muted);background:rgba(255,255,255,.06);padding:6px 10px;border-radius:999px;font-size:13px}
+#blockjaeger .chip b{color:var(–text)}
+#blockjaeger button{appearance:none;border:none;background:var(–accent);color:#0b1020;padding:10px 14px;border-radius:12px;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(122,162,255,.35)}
+#blockjaeger button.secondary{background:rgba(122,162,255,.15);color:var(–text);box-shadow:none;border:1px solid rgba(122,162,255,.35)}
+#blockjaeger button:active{transform:translateY(1px)}
+#blockjaeger #game{width:100%;height:600px;display:block;background:radial-gradient(1200px 600px at 50% -200px,#16213e 0%,#0b1020 60%,#050913 100%);border-radius:16px}
+#blockjaeger .overlay{position:fixed;inset:0;background:rgba(5,9,19,.6);display:flex;align-items:center;justify-content:center;z-index:999}
+#blockjaeger .overlay[hidden]{display:none!important}
+#blockjaeger .card{background:#0e1530;border:1px solid rgba(255,255,255,.08);padding:20px;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.4);color:var(–text);text-align:center;max-width:520px}
+#blockjaeger .card h3{margin:0 0 8px}
+#blockjaeger .kbdrow{margin:12px 0 16px;color:var(–muted)}
+#blockjaeger .kbd{display:inline-block;border:1px solid rgba(255,255,255,.2);padding:2px 6px;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(–text)}
+#blockjaeger .badge{padding:2px 8px;border-radius:999px;font-size:12px;margin-left:4px}
+#blockjaeger .badge.good{background:rgba(51,209,122,.15);color:var(–good);border:1px solid rgba(51,209,122,.35)}
+#blockjaeger .badge.warn{background:rgba(255,209,102,.12);color:var(–warn);border:1px solid rgba(255,209,102,.35)}
+#blockjaeger .badge.bad{background:rgba(255,107,107,.12);color:var(–bad);border:1px solid rgba(255,107,107,.35)}
+html,body{margin:0;background:#0b1020}
+</style>
+</head>
+<body>
+
+<div id=“blockjaeger“>
+<div class=“game-header“>
+<div class=“title“>Blockjäger</div>
+<div class=“btnbar“>
+<button id=“btnRestart“ title=“Neu starten (R)“>Neu starten</button>
+<button id=“btnPause“ class=“secondary“ title=“Pause (Leertaste)“>Pause</button>
+</div>
+</div>
+<div class=“panel wrap“>
+<div class=“hud“>
+<span class=“chip“>Level: <b id=“uiLevel“>1</b></span>
+<span class=“chip“>Leben: <b id=“uiLives“>3</b></span>
+<span class=“chip“>Punkte: <b id=“uiScore“>0</b></span>
+<span class=“chip“>Aktiv: <b id=“uiPower“>–</b></span>
+</div>
+<!– wichtig: touch-action:none –>
+<canvas id=“game“ style=“touch-action:none;“></canvas>
+</div>
+
+<div class=“overlay“ id=“overlay“>
+<div class=“card“>
+<h3 id=“ovTitle“>Blockjäger</h3>
+<p id=“ovText“>Leertaste: Start/Schießen • R: Neu • Pfeile/A,D: Bewegen</p>
+<div class=“kbdrow“>
+<span class=“kbd“>←</span><span class=“kbd“>→</span> Bewegen &nbsp;|&nbsp;
+<span class=“kbd“>Leertaste</span> Starten/Laser &nbsp;|&nbsp; <span class=“kbd“>R</span> Neu
+</div>
+<button id=“btnContinue“>Weiter</button>
+</div>
+</div>
+</div>
+
+<script>
+(function(){
+const root=document.getElementById(„blockjaeger“);
+const canvas=root.querySelector(„#game“);
+const ctx=canvas.getContext(„2d“);
+const ui={
+level:root.querySelector(„#uiLevel“),
+lives:root.querySelector(„#uiLives“),
+score:root.querySelector(„#uiScore“),
+power:root.querySelector(„#uiPower“),
+overlay:root.querySelector(„#overlay“),
+ovTitle:root.querySelector(„#ovTitle“),
+ovText:root.querySelector(„#ovText“),
+btnContinue:root.querySelector(„#btnContinue“),
+btnPause:root.querySelector(„#btnPause“),
+btnRestart:root.querySelector(„#btnRestart“)
+};
+
+const State={
+running:false, paused:false, level:1, lives:3, score:0,
+bricks:[], balls:[], bullets:[], powerups:[],
+keys:Object.create(null), stickyArmed:true,
+effects:{expand:0, laser:0, slow:0}
+};
+
+const Config={
+cols:12, rows:6, brickH:22, brickGap:6, topOffset:70,
+paddleW:110, paddleH:14, paddleSpeed:9,
+ballSpeed:5.4, ballRadius:8,
+powerChance:0.2, effectDuration:14,
+bulletSpeed:10, bulletCooldown:180
+};
+
+const paddle={x:100, y:560, w:Config.paddleW, h:Config.paddleH, vx:0, lastFire:0};
+
+function resizeCanvas(){
+const r=window.devicePixelRatio||1;
+const w=canvas.clientWidth;
+const h=canvas.clientHeight||600;
+canvas.width=Math.max(1,Math.round(w*r));
+canvas.height=Math.max(1,Math.round(h*r));
+ctx.setTransform(r,0,0,r,0,0);
+}
+function ratio(){return window.devicePixelRatio||1}
+
+function makeBall(attached){
+const b={
+x:canvas.width/2/ratio(),
+y:paddle.y-12,
+r:Config.ballRadius,
+vx:(Math.random()<.5?-1:1)*Config.ballSpeed,
+vy:-Config.ballSpeed,
+attached:false
+};
+if(attached){
+b.attached=true; b.vx=0; b.vy=0;
+b.x=paddle.x+paddleWidth()/2;
+b.y=paddle.y-b.r-2;
+}
+return b;
+}
+
+function createBricks(n){
+State.bricks=[];
+const pad=20, cols=Config.cols, gap=Config.brickGap;
+const totalGap=gap*(cols-1);
+const cw=canvas.width/ratio();
+const brickW=Math.floor((cw-pad*2-totalGap)/cols);
+const brickH=Config.brickH;
+const colors=[„#7aa2ff“,“#96e6a1″,“#ffd166″,“#ff6b6b“,“#b892ff“,“#6be7ff“];
+for(let r=0;r<Config.rows+Math.min(3,n-1);r++){
+for(let c=0;c<cols;c++){
+const x=pad+c*(brickW+gap);
+const y=Config.topOffset+r*(brickH+gap);
+State.bricks.push({x,y,w:brickW,h:brickH,color:colors[r%colors.length]});
+}
+}
+}
+
+function initLevel(n){
+State.level=n;
+createBricks(n);
+State.balls=[makeBall(true)];
+State.bullets.length=0;
+State.powerups.length=0;
+State.stickyArmed=true;
+}
+
+function paddleWidth(){const base=Config.paddleW; return State.effects.expand>0 ? base*1.6 : base}
+
+function draw(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+// bricks
+for(const b of State.bricks){
+ctx.fillStyle=b.color; ctx.fillRect(b.x,b.y,b.w,b.h);
+ctx.fillStyle=“rgba(255,255,255,.15)“; ctx.fillRect(b.x,b.y,b.w,4);
+}
+
+// paddle
+ctx.fillStyle=“#e8f0ff“;
+const pw=paddleWidth();
+ctx.fillRect(paddle.x,paddle.y,pw,paddle.h);
+if(State.effects.laser>0){
+ctx.fillStyle=“#7aa2ff“;
+ctx.fillRect(paddle.x-6,paddle.y-2,6,paddle.h+4);
+ctx.fillRect(paddle.x+pw,paddle.y-2,6,paddle.h+4);
+}
+
+// balls
+for(const b of State.balls){
+ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.closePath();
+ctx.fillStyle=“#ffffff“; ctx.fill();
+ctx.strokeStyle=“rgba(122,162,255,.6)“; ctx.stroke();
+}
+
+// bullets
+ctx.fillStyle=“#7aa2ff“;
+for(const m of State.bullets) ctx.fillRect(m.x-2,m.y-10,4,10);
+
+// powerups
+for(const p of State.powerups){
+ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y,10,0,Math.PI*2); ctx.fill();
+ctx.fillStyle=“#0b1020″; ctx.font=“bold 12px system-ui“; ctx.textAlign=“center“; ctx.textBaseline=“middle“;
+ctx.fillText(p.label,p.x,p.y+.5);
+}
+}
+
+function rectHit(ax,ay,aw,ah,bx,by,bw,bh){return ax<bx+bw&&ax+aw>bx&&ay<by+bh&&ay+ah>by}
+function circleRectHit(cx,cy,r,rx,ry,rw,rh){
+const nx=Math.max(rx,Math.min(cx,rx+rw));
+const ny=Math.max(ry,Math.min(cy,ry+rh));
+const dx=cx-nx, dy=cy-ny;
+return dx*dx+dy*dy<=r*r;
+}
+
+function update(dt){
+// tick down effects
+for(const k of Object.keys(State.effects)){
+if(State.effects[k]>0){ State.effects[k]-=dt; if(State.effects[k]<0) State.effects[k]=0; }
+}
+
+// keyboard move
+const speed=Config.paddleSpeed*(State.effects.slow>0?.8:1);
+if(State.keys[„ArrowLeft“]||State.keys[„a“]) paddle.x-=speed;
+if(State.keys[„ArrowRight“]||State.keys[„d“]) paddle.x+=speed;
+paddle.x=Math.max(10,Math.min(canvas.width/ratio()-paddleWidth()-10,paddle.x));
+
+// bullets
+for(const m of State.bullets) m.y-=Config.bulletSpeed;
+State.bullets=State.bullets.filter(m=>m.y>-20);
+for(const m of State.bullets){
+for(let i=State.bricks.length-1;i>=0;i–){
+const b=State.bricks[i];
+if(rectHit(m.x-2,m.y-10,4,10,b.x,b.y,b.w,b.h)){
+State.score+=50; dropPower(b); State.bricks.splice(i,1); m.y=-999; break;
+}
+}
+}
+State.bullets=State.bullets.filter(m=>m.y>-900);
+
+// balls
+const speedMul=State.effects.slow>0?.75:1;
+for(const ball of State.balls){
+if(ball.attached){ ball.x=paddle.x+paddleWidth()/2; ball.y=paddle.y-ball.r-2; continue; }
+ball.x+=ball.vx*speedMul; ball.y+=ball.vy*speedMul;
+
+if(ball.x-ball.r<0){ ball.x=ball.r; ball.vx*=-1; }
+if(ball.x+ball.r>canvas.width/ratio()){ ball.x=canvas.width/ratio()-ball.r; ball.vx*=-1; }
+if(ball.y-ball.r<0){ ball.y=ball.r; ball.vy*=-1; }
+
+if(circleRectHit(ball.x,ball.y,ball.r,paddle.x,paddle.y,paddleWidth(),paddle.h)){
+ball.y=paddle.y-ball.r-0.01;
+const hit=(ball.x-(paddle.x+paddleWidth()/2))/(paddleWidth()/2);
+const angle=hit*(Math.PI/3);
+const sp=Math.hypot(ball.vx,ball.vy);
+ball.vx=sp*Math.sin(angle);
+ball.vy=-Math.abs(sp*Math.cos(angle));
+}
+
+if(ball.y-ball.r>canvas.height/ratio()){ ball.dead=true; }
+
+for(let i=State.bricks.length-1;i>=0;i–){
+const brick=State.bricks[i];
+if(circleRectHit(ball.x,ball.y,ball.r,brick.x,brick.y,brick.w,brick.h)){
+const prevX=ball.x-ball.vx*speedMul;
+const prevY=ball.y-ball.vy*speedMul;
+const fromLeft=prevX<=brick.x;
+const fromRight=prevX>=brick.x+brick.w;
+const fromTop=prevY<=brick.y;
+const fromBottom=prevY>=brick.y+brick.h;
+if(fromLeft||fromRight) ball.vx*=-1;
+if(fromTop||fromBottom) ball.vy*=-1;
+State.score+=100; dropPower(brick); State.bricks.splice(i,1); break;
+}
+}
+}
+State.balls=State.balls.filter(b=>!b.dead);
+
+// powerups
+for(const p of State.powerups){
+p.y+=2.2;
+if(rectHit(p.x-10,p.y-10,20,20,paddle.x,paddle.y,paddleWidth(),paddle.h)){ applyPower(p.kind); p.dead=true; }
+if(p.y>canvas.height/ratio()+20) p.dead=true;
+}
+State.powerups=State.powerups.filter(p=>!p.dead);
+
+// life/level
+if(State.balls.length===0){
+State.lives–; updateHUD();
+if(State.lives<=0){ showOverlay(„Game Over“,“Drücke R für Neustart“); State.running=false; return; }
+else { State.balls.push(makeBall(true)); State.stickyArmed=true; }
+}
+if(State.bricks.length===0){ initLevel(State.level+1); updateHUD(); }
+}
+
+function dropPower(brick){
+if(Math.random()>Config.powerChance) return;
+const kinds=[„expand“,“bonusball“,“multiball“,“laser“,“slow“];
+const kind=kinds[Math.floor(Math.random()*kinds.length)];
+const labels={expand:“E“,bonusball:“2″,multiball:“M“,laser:“L“,slow:“⌛“};
+const colors={expand:“#96e6a1″,bonusball:“#5eead4″,multiball:“#b892ff“,laser:“#7aa2ff“,slow:“#ff6b6b“};
+State.powerups.push({x:brick.x+brick.w/2,y:brick.y+brick.h/2,kind,label:labels[kind],color:colors[kind]});
+}
+
+function applyPower(kind){
+ui.power.innerHTML=kindLabel(kind);
+if(kind===“expand“){ State.effects.expand=Config.effectDuration; }
+if(kind===“bonusball“){
+const base=State.balls.length?State.balls[0]:makeBall(false);
+const nb={x:base.x,y:base.y,r:base.r,vx:(Math.random()*2-1)*Config.ballSpeed,vy:-Config.ballSpeed*(.8+Math.random()*.4)};
+State.balls.push(nb);
+}
+if(kind===“multiball“){
+const base=State.balls.length?State.balls[0]:makeBall(false);
+for(let i=0;i<2;i++){
+const nb={x:base.x,y:base.y,r:base.r,vx:(Math.random()*2-1)*Config.ballSpeed,vy:-Config.ballSpeed*(.8+Math.random()*.4)};
+State.balls.push(nb);
+}
+}
+if(kind===“laser“){ State.effects.laser=Config.effectDuration; }
+if(kind===“slow“){ State.effects.slow=Config.effectDuration; }
+}
+
+function kindLabel(k){
+if(k===“expand“)return’Paddle+ <span class=“badge good“>14s</span>‘;
+if(k===“bonusball“)return“Zweiter Ball“;
+if(k===“multiball“)return“Multiball“;
+if(k===“laser“)return’Laser <span class=“badge warn“>14s</span>‘;
+if(k===“slow“)return’Slow <span class=“badge bad“>14s</span>‘;
+return“–“;
+}
+
+function updateHUD(){
+ui.level.textContent=State.level;
+ui.lives.textContent=State.lives;
+ui.score.textContent=State.score;
+}
+
+function fireLaser(){
+State.stickyArmed=false;
+const pw=paddleWidth();
+const now=performance.now();
+if(now-paddle.lastFire<Config.bulletCooldown) return;
+paddle.lastFire=now;
+State.bullets.push({x:paddle.x+6,y:paddle.y});
+State.bullets.push({x:paddle.x+pw-6,y:paddle.y});
+}
+
+function launchBalls(){
+for(const b of State.balls){
+if(b.attached){
+b.attached=false;
+b.vx=(Math.random()<.5?-1:1)*Config.ballSpeed;
+b.vy=-Config.ballSpeed;
+}
+}
+State.stickyArmed=false;
+}
+
+// Maus- und Tastatursteuerung
+root.addEventListener(„mousemove“,e=>{
+const rect=canvas.getBoundingClientRect();
+const mx=e.clientX-rect.left;
+paddle.x = Math.max(10,Math.min((canvas.width/ratio())-paddleWidth()-10, mx-paddleWidth()/2));
+});
+
+window.addEventListener(„keydown“,e=>{
+State.keys[e.key]=true;
+if(e.key===“ „){
+e.preventDefault();
+if(!State.running){ start(); }
+if(State.paused){ resume(); }
+if(State.stickyArmed){ launchBalls(); }
+else if(State.effects.laser>0){ fireLaser(); }
+}
+if(e.key===“r“||e.key===“R“){ restart(); }
+if(e.key===“Escape“||e.key===“p“||e.key===“P“){ togglePause(); }
+});
+window.addEventListener(„keyup“,e=>{ State.keys[e.key]=false; });
+
+ui.btnContinue.addEventListener(„click“,()=>{ resume(); });
+ui.btnPause.addEventListener(„click“,()=>{ togglePause(); });
+ui.btnRestart.addEventListener(„click“,()=>{ restart(); });
+
+/* === Tap auf Handy = Leertaste-Aktion === */
+function spaceActionLikeOnMobile(){
+if(!State.running){ start(); }
+if(State.paused){ resume(); }
+if(State.stickyArmed){ launchBalls(); }
+else if(State.effects.laser>0){ fireLaser(); }
+}
+canvas.addEventListener(„touchend“, ()=>{ spaceActionLikeOnMobile(); }, {passive:true});
+ui.overlay.addEventListener(„touchend“, ()=>{ if(!State.running||State.paused) spaceActionLikeOnMobile(); }, {passive:true});
+
+/* === Finger folgt Paddle: Pointer-Events mit Capture (statt reinem Touch) === */
+(function(){
+function setPaddleByClientX(clientX){
+const rect=canvas.getBoundingClientRect();
+const mx=clientX-rect.left;
+const cw=canvas.width/(window.devicePixelRatio||1);
+let x=mx-paddleWidth()/2;
+x=Math.max(10,Math.min(cw-paddleWidth()-10,x));
+paddle.x=x;
+}
+if(window.PointerEvent){
+let dragging=false;
+canvas.addEventListener(„pointerdown“,(e)=>{
+if(e.pointerType && e.pointerType!==“touch“) return; // nur Finger
+dragging=true;
+if(canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+setPaddleByClientX(e.clientX);
+},{passive:true});
+canvas.addEventListener(„pointermove“,(e)=>{
+if(!dragging) return;
+setPaddleByClientX(e.clientX);
+},{passive:true});
+const stop=(e)=>{ dragging=false; try{ if(canvas.releasePointerCapture) canvas.releasePointerCapture(e.pointerId);}catch{} };
+canvas.addEventListener(„pointerup“,stop,{passive:true});
+canvas.addEventListener(„pointercancel“,stop,{passive:true});
+} else {
+// Fallback für sehr alte Browser: Maus/Touch wie gehabt
+let startedX=null;
+canvas.addEventListener(„touchstart“,(e)=>{
+const t=e.changedTouches[0]||e.touches[0]; if(!t) return;
+startedX=t.clientX; setPaddleByClientX(t.clientX);
+},{passive:true});
+canvas.addEventListener(„touchmove“,(e)=>{
+const t=e.touches[0]||e.changedTouches[0]; if(!t) return;
+setPaddleByClientX(t.clientX);
+},{passive:true});
+canvas.addEventListener(„touchend“,(e)=>{
+const t=e.changedTouches[0]; if(!t) return;
+const dx=startedX==null?0:(t.clientX-startedX);
+if(Math.abs(dx)>4) setPaddleByClientX(t.clientX);
+startedX=null;
+},{passive:true});
+}
+})();
+
+// Laufzeit/Overlay/Loop
+function start(){ State.running=true; State.paused=false; ui.overlay.hidden=true; }
+function togglePause(){ if(!State.running) return; State.paused=!State.paused; if(State.paused) showOverlay(„Pausiert“,“Drücke Leertaste zum Fortsetzen“); else resume(); }
+function resume(){ ui.overlay.hidden=true; State.paused=false; }
+function showOverlay(title,text){ ui.ovTitle.textContent=title; ui.ovText.textContent=text; ui.overlay.hidden=false; }
+function restart(){
+State.lives=3; State.score=0;
+State.effects.expand=0; State.effects.laser=0; State.effects.slow=0;
+initLevel(1); updateHUD();
+State.running=true; State.paused=false; ui.overlay.hidden=true;
+}
+
+let last=0;
+function loop(ts){
+if(!last) last=ts;
+const dt=Math.min(1/15,(ts-last)/1000);
+last=ts;
+resizeCanvas();
+if(State.running && !State.paused){ update(dt); }
+draw();
+requestAnimationFrame(loop);
+}
+
+function bootstrap(){
+resizeCanvas(); updateHUD(); initLevel(1);
+showOverlay(„Blockjäger“,“Leertaste: Start/Schießen • R: Neu • Pfeile/A,D: Bewegen“);
+requestAnimationFrame(loop);
+}
+bootstrap();
+})();
+</script>
+
+</body>
+</html>
