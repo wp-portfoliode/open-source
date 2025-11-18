@@ -1,0 +1,575 @@
+<div id=“pm-editor-wrapper“>
+<style>
+/* — Grundlayout — */
+#pm-editor-wrapper {
+font-family: system-ui, -apple-system, BlinkMacSystemFont, „Segoe UI“, sans-serif;
+max-width: 1000px;
+margin: 20px auto;
+}
+
+#pm-toolbar {
+display: flex;
+gap: 10px;
+margin-bottom: 10px;
+align-items: center;
+flex-wrap: wrap;
+}
+
+#pm-toolbar button {
+padding: 6px 12px;
+border-radius: 4px;
+border: 1px solid #ccc;
+background: #f5f5f5;
+cursor: pointer;
+font-size: 14px;
+}
+
+#pm-toolbar button:hover {
+background: #e5e5e5;
+}
+
+#pm-toolbar button.pm-active {
+border-color: #0073aa;
+background: #d9edf7;
+}
+
+#pm-toolbar .pm-hint {
+font-size: 13px;
+color: #555;
+}
+
+#pm-font-size-label {
+font-size: 13px;
+color: #333;
+}
+
+#pm-font-size-select {
+font-size: 13px;
+padding: 4px 6px;
+}
+
+/* — Arbeitsfläche — */
+#pm-editor-canvas {
+position: relative;
+width: 100%;
+max-width: 900px;
+height: 600px;
+border: 1px solid #ccc;
+background: #fff;
+overflow: hidden;
+box-shadow: 0 0 0 1px #eee;
+cursor: default;
+user-select: none;
+}
+
+/* Zeichen-Layer */
+#pm-draw-layer {
+position: absolute;
+inset: 0;
+z-index: 0;
+display: block;
+}
+
+/* — Gemeinsame Styles für Elemente — */
+.pm-item {
+position: absolute;
+box-sizing: border-box;
+border: 1px solid transparent;
+z-index: 1;
+}
+
+.pm-item.pm-selected {
+border-color: #0073aa;
+box-shadow: 0 0 0 1px rgba(0,115,170,0.4);
+}
+
+.pm-item img {
+display: block;
+width: 100%;
+height: 100%;
+object-fit: contain;
+/* WICHTIG: pointer-events NICHT auf none, sonst kann man das Bild nicht ziehen */
+}
+
+/* — Text-Element — */
+.pm-text-item {
+min-width: 100px;
+min-height: 40px;
+background: rgba(255,255,255,0.8);
+padding: 4px;
+}
+
+.pm-text-content {
+width: 100%;
+height: 100%;
+outline: none;
+cursor: text;
+font-size: 16px;
+color: #000;
+}
+
+/* — Resize-Handle — */
+.pm-resize-handle {
+position: absolute;
+width: 12px;
+height: 12px;
+right: -6px;
+bottom: -6px;
+border-radius: 50%;
+border: 1px solid #0073aa;
+background: #fff;
+box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+cursor: se-resize;
+}
+
+/* Beim Ziehen Textauswahl verhindern */
+.pm-dragging,
+.pm-resizing {
+cursor: move !important;
+}
+
+/* Beim Zeichnen */
+.pm-drawing {
+cursor: crosshair !important;
+}
+</style>
+
+<div id=“pm-toolbar“>
+<button id=“pm-add-text“>Text hinzufügen</button>
+
+<label id=“pm-font-size-label“>
+Schriftgröße:
+<select id=“pm-font-size-select“>
+<option value=“12″>12px</option>
+<option value=“14″>14px</option>
+<option value=“16″ selected>16px</option>
+<option value=“18″>18px</option>
+<option value=“20″>20px</option>
+<option value=“24″>24px</option>
+<option value=“28″>28px</option>
+</select>
+</label>
+
+<button id=“pm-pen-off“ class=“pm-active“>Stift aus</button>
+<button id=“pm-pen-black“>Stift Schwarz</button>
+<button id=“pm-pen-red“>Stift Rot</button>
+<button id=“pm-pen-eraser“>Radierer</button>
+
+<span class=“pm-hint“>
+Bilder einfügen: <strong>STRG + V</strong> &nbsp;|&nbsp;
+Element löschen: <strong>Entf</strong> &nbsp;|&nbsp;
+Zeichnen: Stift auswählen &nbsp;|&nbsp;
+Radierer: „Radierer“ wählen und über Linien malen
+</span>
+</div>
+
+<div id=“pm-editor-canvas“ tabindex=“0″>
+<canvas id=“pm-draw-layer“></canvas>
+</div>
+
+<script>
+(function () {
+const canvas = document.getElementById(‚pm-editor-canvas‘);
+const drawLayer = document.getElementById(‚pm-draw-layer‘);
+const addTextBtn = document.getElementById(‚pm-add-text‘);
+const fontSizeSelect = document.getElementById(‚pm-font-size-select‘);
+const penOffBtn = document.getElementById(‚pm-pen-off‘);
+const penBlackBtn = document.getElementById(‚pm-pen-black‘);
+const penRedBtn = document.getElementById(‚pm-pen-red‘);
+const penEraserBtn = document.getElementById(‚pm-pen-eraser‘);
+
+// Zeichen-Kontext
+const ctx = drawLayer.getContext(‚2d‘);
+
+// Größe des Zeichen-Canvas setzen
+function initDrawLayerSize() {
+const rect = canvas.getBoundingClientRect();
+drawLayer.width = rect.width;
+drawLayer.height = rect.height;
+}
+initDrawLayerSize();
+
+let selectedItem = null;
+let dragState = null;
+let resizeState = null;
+let zIndexCounter = 1;
+
+// Pen-Mode: null, ‚black‘, ‚red‘, ‚eraser‘
+let penMode = null;
+let isDrawing = false;
+let lastX = 0;
+let lastY = 0;
+
+// — Pen-UI aktualisieren —
+function updatePenUI() {
+penOffBtn.classList.remove(‚pm-active‘);
+penBlackBtn.classList.remove(‚pm-active‘);
+penRedBtn.classList.remove(‚pm-active‘);
+penEraserBtn.classList.remove(‚pm-active‘);
+
+document.body.classList.remove(‚pm-drawing‘);
+
+if (penMode === null) {
+penOffBtn.classList.add(‚pm-active‘);
+drawLayer.style.pointerEvents = ’none‘;
+} else {
+drawLayer.style.pointerEvents = ‚auto‘;
+document.body.classList.add(‚pm-drawing‘);
+
+if (penMode === ‚black‘) {
+penBlackBtn.classList.add(‚pm-active‘);
+} else if (penMode === ‚red‘) {
+penRedBtn.classList.add(‚pm-active‘);
+} else if (penMode === ‚eraser‘) {
+penEraserBtn.classList.add(‚pm-active‘);
+}
+}
+}
+
+penOffBtn.addEventListener(‚click‘, function () {
+penMode = null;
+updatePenUI();
+});
+
+penBlackBtn.addEventListener(‚click‘, function () {
+penMode = ‚black‘;
+updatePenUI();
+});
+
+penRedBtn.addEventListener(‚click‘, function () {
+penMode = ‚red‘;
+updatePenUI();
+});
+
+penEraserBtn.addEventListener(‚click‘, function () {
+penMode = ‚eraser‘;
+updatePenUI();
+});
+
+updatePenUI();
+
+// — Zeichnen mit dem Stift / Radierer —
+function getRelativePosition(e) {
+const rect = drawLayer.getBoundingClientRect();
+return {
+x: e.clientX – rect.left,
+y: e.clientY – rect.top
+};
+}
+
+drawLayer.addEventListener(‚mousedown‘, function (e) {
+if (!penMode) return;
+
+const pos = getRelativePosition(e);
+isDrawing = true;
+lastX = pos.x;
+lastY = pos.y;
+
+ctx.beginPath();
+ctx.moveTo(lastX, lastY);
+ctx.lineCap = ‚round‘;
+ctx.lineJoin = ‚round‘;
+ctx.lineWidth = (penMode === ‚eraser‘) ? 12 : 3;
+
+if (penMode === ‚black‘) {
+ctx.strokeStyle = ‚#000000‘;
+} else if (penMode === ‚red‘) {
+ctx.strokeStyle = ‚#ff0000‘;
+} else if (penMode === ‚eraser‘) {
+ctx.strokeStyle = ‚#ffffff‘; // Hintergrundfarbe
+}
+
+e.preventDefault();
+});
+
+drawLayer.addEventListener(‚mousemove‘, function (e) {
+if (!isDrawing || !penMode) return;
+
+const pos = getRelativePosition(e);
+ctx.lineTo(pos.x, pos.y);
+ctx.stroke();
+lastX = pos.x;
+lastY = pos.y;
+e.preventDefault();
+});
+
+function stopDrawing() {
+if (isDrawing) {
+isDrawing = false;
+ctx.closePath();
+}
+}
+
+drawLayer.addEventListener(‚mouseup‘, stopDrawing);
+drawLayer.addEventListener(‚mouseleave‘, stopDrawing);
+
+// — Helfer: Auswahl —
+function selectItem(el) {
+if (selectedItem && selectedItem !== el) {
+selectedItem.classList.remove(‚pm-selected‘);
+}
+selectedItem = el;
+if (selectedItem) {
+selectedItem.classList.add(‚pm-selected‘);
+selectedItem.style.zIndex = (++zIndexCounter).toString();
+// Schriftgröße im Dropdown aktualisieren, falls Text
+const textEl = selectedItem.querySelector(‚.pm-text-content‘);
+if (textEl) {
+const size = parseInt(window.getComputedStyle(textEl).fontSize, 10);
+let found = false;
+for (let i = 0; i < fontSizeSelect.options.length; i++) {
+if (parseInt(fontSizeSelect.options[i].value, 10) === size) {
+fontSizeSelect.selectedIndex = i;
+found = true;
+break;
+}
+}
+if (!found) {
+fontSizeSelect.value = ’16‘;
+}
+}
+}
+}
+
+function clearSelection() {
+if (selectedItem) {
+selectedItem.classList.remove(‚pm-selected‘);
+selectedItem = null;
+}
+}
+
+// — Schriftgröße ändern —
+fontSizeSelect.addEventListener(‚change‘, function () {
+if (!selectedItem) return;
+const textEl = selectedItem.querySelector(‚.pm-text-content‘);
+if (!textEl) return;
+const size = fontSizeSelect.value;
+textEl.style.fontSize = size + ‚px‘;
+});
+
+// — Bild-Element erstellen —
+function createImageItem(src) {
+const item = document.createElement(‚div‘);
+item.className = ‚pm-item pm-image-item‘;
+
+const defaultWidth = 250;
+const defaultHeight = 200;
+
+const rect = canvas.getBoundingClientRect();
+const left = (rect.width – defaultWidth) / 2;
+const top = (rect.height – defaultHeight) / 2;
+
+item.style.left = left + ‚px‘;
+item.style.top = top + ‚px‘;
+item.style.width = defaultWidth + ‚px‘;
+item.style.height = defaultHeight + ‚px‘;
+
+const img = document.createElement(‚img‘);
+img.src = src;
+
+const handle = document.createElement(‚div‘);
+handle.className = ‚pm-resize-handle‘;
+
+item.appendChild(img);
+item.appendChild(handle);
+canvas.appendChild(item);
+selectItem(item);
+}
+
+// — Text-Element erstellen —
+function createTextItem() {
+const item = document.createElement(‚div‘);
+item.className = ‚pm-item pm-text-item‘;
+
+item.style.left = ’50px‘;
+item.style.top = ’50px‘;
+item.style.width = ‚200px‘;
+item.style.height = ’60px‘;
+
+const content = document.createElement(‚div‘);
+content.className = ‚pm-text-content‘;
+content.contentEditable = ‚true‘;
+content.innerText = ‚Doppelklick oder einfach schreiben…‘;
+
+const handle = document.createElement(‚div‘);
+handle.className = ‚pm-resize-handle‘;
+
+item.appendChild(content);
+item.appendChild(handle);
+canvas.appendChild(item);
+selectItem(item);
+
+setTimeout(function () {
+content.focus();
+const range = document.createRange();
+range.selectNodeContents(content);
+range.collapse(false);
+const sel = window.getSelection();
+sel.removeAllRanges();
+sel.addRange(range);
+}, 0);
+}
+
+// — Toolbar: Text hinzufügen —
+addTextBtn.addEventListener(‚click‘, function () {
+createTextItem();
+});
+
+// — PASTE: Bilder aus Zwischenablage einfügen —
+window.addEventListener(‚paste‘, function (e) {
+const active = document.activeElement;
+const insideEditor = active === canvas || canvas.contains(active) || active === document.body;
+if (!insideEditor) return;
+
+const items = e.clipboardData && e.clipboardData.items;
+if (!items) return;
+
+let foundImage = false;
+
+for (let i = 0; i < items.length; i++) {
+const item = items[i];
+if (item.type && item.type.indexOf(‚image‘) === 0) {
+const file = item.getAsFile();
+if (!file) continue;
+foundImage = true;
+const url = URL.createObjectURL(file);
+createImageItem(url);
+}
+}
+
+if (foundImage) {
+e.preventDefault();
+}
+});
+
+// — Mouse-Events für Drag & Resize (nur wenn Stift aus!) —
+canvas.addEventListener(‚mousedown‘, function (e) {
+if (penMode) {
+// Im Stift/Radierer-Modus keine Elemente verschieben/resizen
+return;
+}
+
+const target = e.target;
+
+// Resize-Handle?
+if (target.classList.contains(‚pm-resize-handle‘)) {
+const item = target.closest(‚.pm-item‘);
+if (!item) return;
+selectItem(item);
+
+const rect = item.getBoundingClientRect();
+const canvasRect = canvas.getBoundingClientRect();
+
+resizeState = {
+item: item,
+startX: e.clientX,
+startY: e.clientY,
+startWidth: rect.width,
+startHeight: rect.height,
+canvasRect: canvasRect
+};
+
+document.body.classList.add(‚pm-resizing‘);
+e.preventDefault();
+return;
+}
+
+// Auf ein Element geklickt?
+const item = target.closest(‚.pm-item‘);
+if (item && canvas.contains(item)) {
+selectItem(item);
+
+const rect = item.getBoundingClientRect();
+const canvasRect = canvas.getBoundingClientRect();
+
+dragState = {
+item: item,
+startX: e.clientX,
+startY: e.clientY,
+offsetLeft: rect.left – canvasRect.left,
+offsetTop: rect.top – canvasRect.top
+};
+
+document.body.classList.add(‚pm-dragging‘);
+e.preventDefault();
+} else {
+clearSelection();
+}
+});
+
+document.addEventListener(‚mousemove‘, function (e) {
+if (dragState && !penMode) {
+const canvasRect = canvas.getBoundingClientRect();
+let newLeft = dragState.offsetLeft + (e.clientX – dragState.startX);
+let newTop = dragState.offsetTop + (e.clientY – dragState.startY);
+
+const item = dragState.item;
+const width = item.offsetWidth;
+const height = item.offsetHeight;
+
+newLeft = Math.max(0, Math.min(newLeft, canvasRect.width – width));
+newTop = Math.max(0, Math.min(newTop, canvasRect.height – height));
+
+item.style.left = newLeft + ‚px‘;
+item.style.top = newTop + ‚px‘;
+}
+
+if (resizeState && !penMode) {
+const dx = e.clientX – resizeState.startX;
+const dy = e.clientY – resizeState.startY;
+
+let newWidth = resizeState.startWidth + dx;
+let newHeight = resizeState.startHeight + dy;
+
+newWidth = Math.max(40, newWidth);
+newHeight = Math.max(30, newHeight);
+
+const item = resizeState.item;
+const canvasRect = resizeState.canvasRect;
+const itemRect = item.getBoundingClientRect();
+
+const maxWidth = canvasRect.width – (itemRect.left – canvasRect.left);
+const maxHeight = canvasRect.height – (itemRect.top – canvasRect.top);
+
+newWidth = Math.min(newWidth, maxWidth);
+newHeight = Math.min(newHeight, maxHeight);
+
+item.style.width = newWidth + ‚px‘;
+item.style.height = newHeight + ‚px‘;
+
+e.preventDefault();
+}
+});
+
+document.addEventListener(‚mouseup‘, function () {
+if (dragState) {
+dragState = null;
+document.body.classList.remove(‚pm-dragging‘);
+}
+if (resizeState) {
+resizeState = null;
+document.body.classList.remove(‚pm-resizing‘);
+}
+});
+
+// — Tastatur: Löschen & Escape —
+document.addEventListener(‚keydown‘, function (e) {
+const isEditingText =
+e.target.classList &&
+(e.target.classList.contains(‚pm-text-content‘) || e.target.isContentEditable);
+
+if ((e.key === ‚Delete‘ || e.key === ‚Backspace‘) && !isEditingText) {
+if (selectedItem) {
+e.preventDefault();
+selectedItem.remove();
+selectedItem = null;
+}
+}
+
+if (e.key === ‚Escape‘) {
+clearSelection();
+}
+});
+})();
+</script>
+</div>
