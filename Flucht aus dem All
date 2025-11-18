@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang=“de“>
+<head>
+<meta charset=“utf-8″>
+<meta name=“viewport“ content=“width=device-width, initial-scale=1″>
+<title>Sebi – Flucht von der verlassenen Raumstation (Nur HTML)</title>
+<style>
+/* ———- Farbschema ———- */
+:root{
+–fg:#e6f1ff;
+–muted:#9ab;
+–accent:#59f;
+–danger:#ff3b30;
+–good:#2bd67b;
+–panel:#0c1122;
+–panel2:#0b0f1a;
+color-scheme: dark;
+}
+
+*{box-sizing:border-box}
+body{
+margin:0;
+color:var(–fg);
+font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,“Helvetica Neue“,Arial,“Noto Color Emoji“,“Apple Color Emoji“,sans-serif;
+}
+.wrap{max-width:980px; margin:0 auto; padding:24px 16px 64px; position:relative}
+
+/* dekorativer Sternenlayer, auf den Spielbereich beschränkt */
+.stars, .stars:after{
+content:““;
+position:absolute; inset:0; pointer-events:none; z-index:0;
+background-image:
+radial-gradient(2px 2px at 12% 18%, #fff8 40%, transparent 41%),
+radial-gradient(1.5px 1.5px at 40% 80%, #fff6 40%, transparent 41%),
+radial-gradient(1.8px 1.8px at 75% 35%, #fff7 40%, transparent 41%),
+radial-gradient(1.2px 1.2px at 20% 60%, #fff5 40%, transparent 41%),
+radial-gradient(1.4px 1.4px at 88% 12%, #fff7 40%, transparent 41%);
+opacity:.38; animation: drift 60s linear infinite;
+}
+.stars:after{ animation-duration: 95s; opacity:.22; filter: blur(.4px); }
+@keyframes drift { from{transform:translateX(0)} to{transform:translateX(-180px)} }
+
+/* ———- UI Kopf ———- */
+.ui{
+position:sticky; top:0; z-index:5;
+background: linear-gradient(180deg, rgba(0,0,0,.95), rgba(0,0,0,.7));
+backdrop-filter: blur(4px);
+border-bottom:1px solid #ffffff14;
+padding:10px 12px;
+display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+}
+.title{ font-weight:800; letter-spacing:.5px; display:flex; gap:.6rem; align-items:center }
+.title .dot{ width:.65em; height:.65em; border-radius:50%; background:var(–accent); box-shadow:0 0 10px var(–accent) }
+
+.panel{ display:flex; gap:14px; align-items:center; flex-wrap:wrap }
+
+.inventory, .status, .goals{
+display:flex; gap:8px; align-items:center; font-size:14px;
+background:var(–panel); padding:6px 8px; border-radius:10px; border:1px solid #ffffff17;
+}
+.inventory .item{
+padding:4px 8px; border-radius:8px; border:1px dashed #ffffff2a;
+opacity:.33; filter:grayscale(1);
+white-space:nowrap; font-weight:700;
+}
+
+.status .badge{
+padding:4px 8px; border-radius:7px; font-weight:800; letter-spacing:.4px;
+}
+.status .on{ background:#3a0b0b; color:#ffb2b2; border:1px solid #ffb2b233 }
+.status .off{ background:#0b3a21; color:#b7ffd7; border:1px solid #b7ffd733; display:none }
+
+.alarm{
+display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px;
+background:#240707; border:1px solid #ff3b301e; color:#ffbaba; font-weight:800;
+animation: alarmflash 1s steps(2,end) infinite;
+}
+.alarm .sirene{ width:10px; height:10px; border-radius:50%; background:var(–danger); box-shadow:0 0 10px var(–danger)}
+@keyframes alarmflash { 50%{ filter:brightness(1.6) saturate(1.2) } }
+
+.goals .pill{ padding:4px 8px; border-radius:7px; border:1px solid #ffffff25; }
+.goals .done{ display:none; background:#0f2f1c; color:#9cffc1; border-color:#9cffc142 }
+.goals .todo{ display:inline-flex; background:#1a223c; color:#c9d6ff; border-color:#c9d6ff26 }
+
+.btn, label.btn{
+display:inline-block; cursor:pointer; border:1px solid #ffffff2a; padding:10px 14px;
+border-radius:10px; text-decoration:none; color:var(–fg);
+background:linear-gradient(180deg, #1a2340, #11182a);
+box-shadow: 0 6px 16px rgba(0,0,0,.35), inset 0 1px 0 #ffffff10;
+transition: transform .06s ease, box-shadow .06s ease, border-color .2s;
+font-weight:800; letter-spacing:.3px;
+}
+.btn:hover{ border-color:#ffffff55 }
+.btn:active{ transform:translateY(1px) }
+.btn.good{ border-color:#2bd67b55 }
+.btn.danger{ border-color:#ff3b3055 }
+
+.choices{ display:flex; flex-wrap:wrap; gap:10px; margin-top:12px }
+
+/* ———- Szenen ———- */
+.scenes{
+margin-top:18px; position:relative; z-index:1;
+padding:18px; border-radius:16px;
+background:linear-gradient(180deg, var(–panel2), rgba(0,0,0,.4));
+border:1px solid #ffffff14;
+box-shadow: 0 12px 40px rgba(0,0,0,.45);
+}
+.scene{ display:none }
+.scene h2{ margin:.2em 0 .4em }
+.scene p{ color:var(–muted); margin:.45em 0 1em }
+.ascii{
+background: radial-gradient(680px 320px at 50% -60%, #202a4d 0%, transparent 60%) , #0a0f23;
+border:1px solid #ffffff10;
+padding:12px; border-radius:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+font-size:15.5px; line-height:1.2; white-space:pre; overflow:auto; color:#cfe3ff;
+position:relative;
+}
+.blink{ animation: blink 1s step-end infinite }
+@keyframes blink { 50%{ opacity:.25 } }
+
+/* Rakete / Sprung beim guten Ende */
+.jumpview{ position:relative; height:240px; overflow:hidden; background: #050815; border:1px solid #ffffff15; border-radius:12px; }
+.rocket{
+position:absolute; bottom:8px; left:50%; transform:translateX(-50%);
+font-size:48px; line-height:1;
+animation: lift 5s ease-in forwards;
+text-shadow: 0 0 8px #fff;
+}
+.flame{
+position:absolute; bottom:-6px; left:50%; transform:translateX(-50%);
+width:8px; height:30px; border-radius:4px;
+background:linear-gradient(#fff, #ff0, #f70, #f30);
+filter:blur(.6px); animation:flick 120ms infinite;
+}
+@keyframes lift { 0%{ bottom:8px } 100%{ bottom:300px } }
+@keyframes flick { 0%{height:24px} 50%{height:36px} 100%{height:24px} }
+
+/* Eingaben verstecken */
+input[type=radio], input[type=checkbox]{ position:absolute; left:-9999px }
+
+/* ———- Dynamische UI: Inventar ———- */
+#card:checked ~ .ui .inventory .card{ opacity:1; filter:none; border-style:solid }
+#coords:checked ~ .ui .inventory .coords{ opacity:1; filter:none; border-style:solid }
+#cell:checked ~ .ui .inventory .cell { opacity:1; filter:none; border-style:solid }
+#beacon:checked ~ .ui .inventory .beacon{ opacity:1; filter:none; border-style:solid }
+#jammer:checked ~ .ui .inventory .jammer{ opacity:1; filter:none; border-style:solid }
+
+/* Alarmstatus in UI */
+#alarm_off:checked ~ .ui .status .on{ display:none }
+#alarm_off:checked ~ .ui .status .off{ display:inline-flex }
+#alarm_off:checked ~ .ui .alarm{ display:none }
+#alarm_off:checked ~ .wrap .scenes .alarmnote{ display:none }
+
+/* ———- Dynamische UI: Ziel-Checkliste ———- */
+#coords:checked ~ .ui .goals .g-coords .done{ display:inline-flex }
+#coords:checked ~ .ui .goals .g-coords .todo{ display:none }
+#cell:checked ~ .ui .goals .g-cell .done{ display:inline-flex }
+#cell:checked ~ .ui .goals .g-cell .todo{ display:none }
+#beacon:checked ~ .ui .goals .g-beacon .done{ display:inline-flex }
+#beacon:checked ~ .ui .goals .g-beacon .todo{ display:none }
+
+/* ———- Szenen-Umschaltung ———- */
+#n-start:checked ~ .scenes #start{ display:block }
+#n-ctrl:checked ~ .scenes #ctrl{ display:block }
+#n-shaft:checked ~ .scenes #shaft{ display:block }
+#n-garden:checked ~ .scenes #garden{ display:block }
+#n-drones:checked ~ .scenes #drones{ display:block }
+#n-hangar:checked ~ .scenes #hangar{ display:block }
+#n-airlock:checked ~ .scenes #airlock{ display:block }
+#n-cockpit:checked ~ .scenes #cockpit{ display:block }
+#n-jump:checked ~ .scenes #jump{ display:block }
+#n-caught:checked ~ .scenes #caught{ display:block }
+#n-void:checked ~ .scenes #void{ display:block }
+#n-drift:checked ~ .scenes #drift{ display:block }
+#n-obs:checked ~ .scenes #obs{ display:block }
+#n-comms:checked ~ .scenes #comms{ display:block }
+#n-reactor:checked ~ .scenes #reactor{ display:block }
+#n-vents:checked ~ .scenes #vents{ display:block }
+#n-alien:checked ~ .scenes #alien{ display:block }
+#n-meltdown:checked~ .scenes #meltdown{ display:block }
+
+/* ———- Varianten je Status ———- */
+/* Hangar: Karte nötig */
+.scenes #hangar .has-card{ display:none }
+#card:checked ~ .scenes #hangar .has-card{ display:block }
+#card:checked ~ .scenes #hangar .needs-card{ display:none }
+
+/* Airlock: Alarm muss aus sein */
+.scenes #airlock .enter-safe{ display:none }
+#alarm_off:checked ~ .scenes #airlock .enter-safe{ display:inline-block }
+#alarm_off:checked ~ .scenes #airlock .enter-death{ display:none }
+
+/* Reactor: Zelle entnehmen – sicher nur bei Alarm AUS */
+.scenes #reactor .take-safe{ display:none }
+#alarm_off:checked ~ .scenes #reactor .take-safe{ display:block }
+#alarm_off:checked ~ .scenes #reactor .take-unsafe{ display:none }
+
+/* Vents/Nest: überleben nur mit Störsender */
+.scenes #vents .has-jammer{ display:none }
+#jammer:checked ~ .scenes #vents .has-jammer{ display:block }
+#jammer:checked ~ .scenes #vents .no-jammer{ display:none }
+
+/* Cockpit: FTL nur mit Koordinaten UND Zelle */
+.scenes #cockpit .start-good{ display:none }
+.scenes #cockpit .start-bad{ display:inline-block }
+/* AND-Gate via Reihenfolge (#coords vor #cell vor .scenes) */
+#coords:checked ~ #cell:checked ~ .scenes #cockpit .start-good{ display:inline-block }
+#coords:checked ~ #cell:checked ~ .scenes #cockpit .start-bad{ display:none }
+
+.hint{ font-size:12.5px; color:#8fa2c7 }
+@media (max-width:600px){
+.title{ font-size:16px }
+.inventory, .status, .goals{ font-size:13px }
+.btn{ padding:9px 12px }
+}
+
+/* === Sichtbare Spiel-Textbox in WordPress erzwingen (wichtig!) === */
+/* Dunkler Kasten für den Spielbereich, gut sichtbar auf hellen Themes */
+#game .scenes{
+background:#0e152b !important; /* dunkle Kartenfläche */
+border:1px solid #26335b !important;
+box-shadow: 0 18px 48px rgba(0,0,0,.65) !important;
+}
+/* ASCII-Feld und das darin liegende <pre> hart auf dunkel setzen */
+#game .ascii,
+#game .ascii pre{
+background:#0a0f23 !important; /* dunkler Textbereich */
+color:#cfe3ff !important; /* helle Schrift */
+}
+/* Theme-Defaults aushebeln */
+#game .ascii{
+border:1px solid #223159 !important;
+border-radius:12px !important;
+box-shadow: inset 0 0 0 1px #000, 0 12px 30px rgba(0,0,0,.50) !important;
+}
+#game .ascii pre{
+margin:0 !important;
+padding:0 !important;
+border:0 !important;
+font:inherit !important;
+line-height:inherit !important;
+}
+/* falls WP <pre> generell einfärbt: nur im Spiel neutralisieren */
+#game pre, #game code{
+background:transparent !important;
+color:inherit !important;
+}
+</style>
+</head>
+<body>
+<div class=“wrap“>
+<div class=“stars“></div>
+
+<!– Alles in einem Form, damit Reset die States löscht –>
+<form id=“game“>
+
+<!– ———- SPIELZUSTAND: Knoten (Radios) ———- –>
+<input type=“radio“ name=“node“ id=“n-start“ checked>
+<input type=“radio“ name=“node“ id=“n-ctrl“>
+<input type=“radio“ name=“node“ id=“n-shaft“>
+<input type=“radio“ name=“node“ id=“n-garden“>
+<input type=“radio“ name=“node“ id=“n-drones“>
+<input type=“radio“ name=“node“ id=“n-obs“>
+<input type=“radio“ name=“node“ id=“n-comms“>
+<input type=“radio“ name=“node“ id=“n-reactor“>
+<input type=“radio“ name=“node“ id=“n-vents“>
+<input type=“radio“ name=“node“ id=“n-hangar“>
+<input type=“radio“ name=“node“ id=“n-airlock“>
+<input type=“radio“ name=“node“ id=“n-cockpit“>
+<input type=“radio“ name=“node“ id=“n-jump“>
+<input type=“radio“ name=“node“ id=“n-drift“>
+<input type=“radio“ name=“node“ id=“n-caught“>
+<input type=“radio“ name=“node“ id=“n-void“>
+<input type=“radio“ name=“node“ id=“n-alien“>
+<input type=“radio“ name=“node“ id=“n-meltdown“>
+
+<!– ———- SPIELZUSTAND: Inventar/Schalter (Checkboxen) ———- –>
+<!– ACHTUNG: Reihenfolge wichtig für CSS-„AND“ (coords vor cell vor .scenes)! –>
+<input type=“checkbox“ id=“card“> <!– Schlüsselkarte –>
+<input type=“checkbox“ id=“alarm_off“> <!– Alarm aus –>
+<input type=“checkbox“ id=“coords“> <!– Sprungkoordinaten geladen –>
+<input type=“checkbox“ id=“cell“> <!– Energiezelle –>
+<input type=“checkbox“ id=“beacon“> <!– Notruf gesendet –>
+<input type=“checkbox“ id=“jammer“> <!– Störsender –>
+
+<!– ———- UI ———- –>
+<div class=“ui“>
+<div class=“title“>
+<span class=“dot“ aria-hidden=“true“></span>
+<span>SEBI – Flucht von der Raumstation</span>
+</div>
+<div class=“panel“>
+<div class=“inventory“>
+<strong>Inventar:</strong>
+<span class=“item card“ title=“Schlüsselkarte“>🔑 Karte</span>
+<span class=“item coords“ title=“Sprungdaten“>🧭 Koordinaten</span>
+<span class=“item cell“ title=“Energiezelle“>🔋 Zelle</span>
+<span class=“item beacon“ title=“Notruf gesendet“>📡 Notruf</span>
+<span class=“item jammer“ title=“Störsender“>📢 Störsender</span>
+</div>
+<div class=“goals“>
+<strong>Ziele:</strong>
+<span class=“pill g-coords“><span class=“todo“>🧭 Koordinaten</span><span class=“done“>✅ Koordinaten</span></span>
+<span class=“pill g-cell“><span class=“todo“>🔋 Energiezelle</span><span class=“done“>✅ Energiezelle</span></span>
+<span class=“pill g-beacon“><span class=“todo“>📡 Notruf (optional)</span><span class=“done“>✅ Notruf gesendet</span></span>
+</div>
+<div class=“status“>
+<span class=“badge on“>ALARM: AKTIV</span>
+<span class=“badge off“>ALARM: AUS</span>
+<span class=“alarm“><span class=“sirene“></span> Notbeleuchtung <span class=“blink“>▮▮</span></span>
+</div>
+<input class=“btn“ type=“reset“ value=“Spiel zurücksetzen“>
+</div>
+</div>
+
+<!– ———- SZENEN ———- –>
+<div class=“scenes“>
+
+<!– START –>
+<section class=“scene“ id=“start“>
+<h2>Außenring – Korridor C‑13</h2>
+<p class=“alarmnote“><em>Roter Alarm</em>. Die Station knirscht. Notlichter blinken. <strong>Sebi</strong> (👨‍🚀) wird wach. Irgendwo gibt es ein Shuttle – und hoffentlich den Sprungantrieb.</p>
+<div class=“ascii“><pre>
+╔══════════════════════════════════════════════════════════╗
+║ [==] [==] [==] [==] [==] [==] ║
+║ ║
+║ EMERGENCY EMERGENCY EMERGENCY EMERGENCY EMERGENCY ║
+║ ║
+║ 👨‍🚀 Sebi ║
+║ ─────────── ║
+║ Pfeile: CTRL • OBS • FUNK • WARTUNG • HANGAR ║
+╚══════════════════════════════════════════════════════════╝
+</pre></div>
+<p><strong>Ziel:</strong> Lade <em>Sprungkoordinaten</em>, besorge eine <em>Energiezelle</em> und entkomme im Shuttle. Optional: sende ein <em>Notrufsignal</em>. Das <strong>Alien</strong> wurde in den Lüftungstunneln gesichtet…</p>
+<div class=“choices“>
+<label class=“btn“ for=“n-ctrl“>→ Zum Kontrollraum</label>
+<label class=“btn“ for=“n-obs“>→ Zum Observatorium</label>
+<label class=“btn“ for=“n-comms“>→ Zum Funkarray</label>
+<label class=“btn“ for=“n-shaft“>↓ In den Wartungsbereich</label>
+<label class=“btn“ for=“n-hangar“>↗ Direkt zum Hangar</label>
+</div>
+<p class=“hint“>Oben siehst du Inventar &amp; Ziele. „Spiel zurücksetzen“ löscht den Fortschritt.</p>
+</section>
+
+<!– KONTROLLRAUM –>
+<section class=“scene“ id=“ctrl“>
+<h2>Kontrollraum – Terminal A</h2>
+<div class=“ascii“><pre>
+╔══════════════════════════════════════════════╗
+║ ╔══════════════╗ ╔══════════════╗ ║
+║ ║ SENSORLOG ║ ║ KLIMA ║ ║
+║ ╚══════════════╝ ╚══════════════╝ ║
+║ ┌──────────────────────────────────────┐ ║
+║ │ ALARM: ████ ████ ████ (blink) │ ║
+║ └──────────────────────────────────────┘ ║
+║ ║
+║ Konsole: [ ▣ ] „ALARM OVERRIDE“ ║
+║ Werkbank: Störsender-Bausatz ║
+╚══════════════════════════════════════════════╝
+</pre></div>
+<p>Die Hauptkonsole lebt auf. Ein Schalter: <em>ALARM OVERRIDE</em>. Nebenan liegt ein <strong>Störsender</strong> – gut gegen Bewegungsdetektoren… und anderes.</p>
+<div class=“choices“>
+<label class=“btn good“ for=“alarm_off“>🔧 Alarm ausschalten</label>
+<label class=“btn good“ for=“jammer“>📢 Störsender mitnehmen</label>
+<label class=“btn“ for=“n-obs“>→ Zum Observatorium</label>
+<label class=“btn“ for=“n-shaft“>↓ In den Wartungsbereich</label>
+<label class=“btn“ for=“n-start“>← Zurück zum Korridor</label>
+</div>
+<p class=“hint“>Mit Störsender kommst du sicherer durch die Lüftungstunnel.</p>
+</section>
+
+<!– OBSERVATORIUM –>
+<section class=“scene“ id=“obs“>
+<h2>Observatorium – Sternenkartenkuppel</h2>
+<div class=“ascii“><pre>
+╭──────────────────────────────────────────────╮
+│ ✦ ✦ ✦ ✦ │
+│ ✦ ✦ ✦ ✦ ✦ │
+│ ┌───────────────┐ │
+│ │ NAV-KNOTEN │ 🧭 │
+│ │ ELYSIUM │ │
+│ └───────────────┘ │
+│ 👨‍🚀 │
+╰──────────────────────────────────────────────╯
+</pre></div>
+<p>Zwischen zerschossenen Panels findest du eine intakte Sternkarte. Ein Ziel blinkt: <strong>ELYSIUM-Knoten</strong>.</p>
+<div class=“choices“>
+<label class=“btn good“ for=“coords“>🧭 Koordinaten laden</label>
+<label class=“btn“ for=“n-comms“>→ Zum Funkarray</label>
+<label class=“btn“ for=“n-start“>← Zurück zum Korridor</label>
+</div>
+<p class=“hint“>Oben sollte „Koordinaten“ jetzt grün sein.</p>
+</section>
+
+<!– FUNKARRAY –>
+<section class=“scene“ id=“comms“>
+<h2>Funkarray – Antennenfeld</h2>
+<div class=“ascii“><pre>
+┌──────────────────────────────────────────────┐
+│ 📡📡📡 Parabolschüsseln im Dunkel │
+│ Status: Sendefenster in 00:00:— │
+│ Konsole: [ NOTRUF SENDEN ] │
+│ │
+│ 👨‍🚀 │
+└──────────────────────────────────────────────┘
+</pre></div>
+<p>Das Fenster öffnet sich. Eine automatische Sequenz kann andere Schiffe warnen.</p>
+<div class=“choices“>
+<label class=“btn good“ for=“beacon“>📡 Notruf senden</label>
+<label class=“btn“ for=“n-start“>← Zurück zum Korridor</label>
+<label class=“btn“ for=“n-shaft“>↓ In den Wartungsbereich</label>
+</div>
+<p class=“hint“>Das Notrufziel ist optional – aber gut für die Moral.</p>
+</section>
+
+<!– WARTUNGSBEREICH –>
+<section class=“scene“ id=“shaft“>
+<h2>Wartungsdeck – Schächte &amp; Seitenarme</h2>
+<div class=“ascii“><pre>
+┌───────────────────────────────────────────────┐
+│ ║║║║ Leiter nach unten │
+│ ║║║║ ⋮ │
+│ ║║║║ Feuchte Luft → HYDROPONIK │
+│ └───┬───────────────────────────────────────┘
+│ │ ↘ zu LÜFTUNGSTUNNELS (leises Kratzen)│
+│ └──→ zu REAKTOR (heißes Grollen) │
+└───────────────────────────────────────────────┘
+</pre></div>
+<p>Die Luft riecht nach Metall. Aus den Tunneln kommt ein langsames Kratzen. Irgendwo summen Sicherheitsdrohnen.</p>
+<div class=“choices“>
+<label class=“btn“ for=“n-garden“>→ Zur Hydroponik</label>
+<label class=“btn danger“ for=“n-vents“>→ In die Lüftungstunnel</label>
+<label class=“btn“ for=“n-reactor“>→ Zum Reaktor</label>
+<label class=“btn“ for=“n-drones“>→ Zur Drohnenhalle</label>
+<label class=“btn“ for=“n-start“>↑ Zurück zum Korridor</label>
+</div>
+</section>
+
+<!– HYDROPONIK / GARTEN (Schlüsselkarte) –>
+<section class=“scene“ id=“garden“>
+<h2>Hydroponik – überwucherter Garten</h2>
+<div class=“ascii“><pre>
+╭──────────────────────────╮ 🌿 🌿 🌿
+│ Reagenzen · Glas · Moos │ 🟩🟩🟩🟩🟩 🌱
+│ Kondenswasser perlt │ 🟩🔶🟩🟩🟩 💧
+│ unter UV-Licht. │ 🟩🟩🟩🟩🟩
+╰──────────────────────────╯ 🔦 👨‍🚀 ▣
+</pre></div>
+<p>Unter einer Schale mit Nährlösung blitzt etwas – eine <strong>Schlüsselkarte</strong> mit der Prägung „HANGAR ACCESS“!</p>
+<div class=“choices“>
+<label class=“btn good“ for=“card“>🔑 Schlüsselkarte nehmen</label>
+<label class=“btn“ for=“n-shaft“>← Zurück in den Schacht</label>
+<label class=“btn“ for=“n-hangar“>↗ Zum Hangar</label>
+</div>
+<p class=“hint“>Im Inventar oben sollte nun die Karte aktiv sein.</p>
+</section>
+
+<!– LÜFTUNGSTUNNEL / ALIEN –>
+<section class=“scene“ id=“vents“>
+<h2>Lüftungstunnel – Nähe Nest</h2>
+<div class=“ascii“><pre>
+╔══════════════════════════════════════════════╗
+║ Tunnel: schmal, kalt, feucht ║
+║ Kratzer an den Wänden. ║
+║ Schatten… etwas bewegt sich. ║
+║ ║
+║ 👨‍🚀 ( ͡° ͜ʖ ͡°) ← nein… das ist es. ║
+╚══════════════════════════════════════════════╝
+</pre></div>
+<p>Du riechst ozonige Luft. Etwas Großes klemmt zwischen Rippenblechen.</p>
+<div class=“no-jammer“>
+<div class=“choices“>
+<label class=“btn danger“ for=“n-alien“>⚠ Vorbei huschen (riskant)</label>
+<label class=“btn“ for=“n-shaft“>← Rückzug</label>
+</div>
+<p class=“hint“>Ein <strong>Störsender</strong> aus dem Kontrollraum könnte helfen…</p>
+</div>
+<div class=“has-jammer“>
+<p>Der Störsender pulst. Das Wesen zieht sich zischend zurück.</p>
+<div class=“choices“>
+<label class=“btn good“ for=“n-hangar“>↗ Weiter zum Hangar</label>
+<label class=“btn“ for=“n-shaft“>← Zurück</label>
+</div>
+</div>
+</section>
+
+<!– DROHNENHALLE –>
+<section class=“scene“ id=“drones“>
+<h2>Drohnenhalle – Wartungssteg über Abgrund</h2>
+<div class=“ascii“><pre>
+╔══════════════════════════════════════════════╗
+║ •○• ○•○ •○• (Suchdrohnen) ║
+║ ║
+║ ────────────╼=====╾──────────── (Steg) ║
+║ 👨‍🚀 ║
+║ Lautsprecher: „UNBEFUGTER. BLEIBEN SIE STEHEN.“ ║
+╚══════════════════════════════════════════════╝
+</pre></div>
+<p>Scannerpegel steigen. Du hörst den Ladezyklus der Betäubungssysteme.</p>
+<div class=“choices“>
+<label class=“btn“ for=“n-shaft“>⟲ Verstecken &amp; zurück</label>
+<label class=“btn danger“ for=“n-caught“>⚠ Durchrennen</label>
+</div>
+<p class=“hint“>Vielleicht erst Karte &amp; Alarm erledigen…</p>
+</section>
+
+<!– REAKTOR –>
+<section class=“scene“ id=“reactor“>
+<h2>Reaktor – Wartungspodest</h2>
+<div class=“ascii“><pre>
+┌───────────────────────────────────────────────┐
+│ Fusionskern: ██▓▓▓ (überhitzt) │
+│ Piktogramm: 🔋 ENTNAHME NUR BEI ALARM AUS │
+│ Paneel: [ Verriegelung ] │
+│ 👨‍🚀 │
+└───────────────────────────────────────────────┘
+</pre></div>
+<p>Die Schilder sind eindeutig. Eine Reserve-<strong>Energiezelle</strong> wäre perfekt für das Shuttle.</p>
+
+<div class=“take-unsafe“>
+<div class=“choices“>
+<label class=“btn danger“ for=“n-meltdown“>⚠ Zelle ziehen (Alarm aktiv!)</label>
+<label class=“btn“ for=“n-shaft“>← Zurück</label>
+</div>
+<p class=“hint“>Schalte vorher im <strong>Kontrollraum</strong> den Alarm aus.</p>
+</div>
+
+<div class=“take-safe“>
+<div class=“choices“>
+<label class=“btn good“ for=“cell“>🔋 Zelle sicher entnehmen</label>
+<label class=“btn“ for=“n-shaft“>← Zurück</label>
+</div>
+<p class=“hint“>Oben sollte jetzt „Energiezelle“ grün sein.</p>
+</div>
+</section>
+
+<!– HANGAR –>
+<section class=“scene“ id=“hangar“>
+<h2>Hangar – Shuttle B‑12</h2>
+<div class=“ascii“><pre>
+╭──────────────────────────────────────────────╮
+│ Shuttle B‑12 🚀 │
+│ Dockarm ██████▁▁▁ Bodenbaken ▒▒▒▒ │
+│ Kontrollfeld: [ ACCESS ] │
+│ │
+│ 👨‍🚀 │
+╰──────────────────────────────────────────────╯
+</pre></div>
+
+<div class=“needs-card“>
+<p>Die Zugangssäule piept: „<strong>Zutritt verweigert</strong>. Schlüsselkarte erforderlich.“</p>
+<div class=“choices“>
+<label class=“btn“ for=“n-garden“>→ Vielleicht in der Hydroponik…</label>
+<label class=“btn“ for=“n-ctrl“>→ Oder im Kontrollraum</label>
+<label class=“btn“ for=“n-start“>← Zurück</label>
+</div>
+</div>
+
+<div class=“has-card“>
+<p>Die Säule blinkt grün. „<strong>Zugang gewährt</strong> – Dockarm löst.“</p>
+<div class=“choices“>
+<label class=“btn good“ for=“n-airlock“>🚀 Zum Shuttle – Luftschleuse</label>
+<label class=“btn“ for=“n-ctrl“>← Noch mal zum Kontrollraum</label>
+<label class=“btn“ for=“n-start“>← Zurück</label>
+</div>
+<p class=“hint“>Ohne aktiven Alarm lässt dich die Schleuse durch.</p>
+</div>
+</section>
+
+<!– AIRLOCK –>
+<section class=“scene“ id=“airlock“>
+<h2>Shuttle B‑12 – Luftschleuse</h2>
+<div class=“ascii“><pre>
+┌───────────────────┐ Druck: [▓▓▓▓▓▓▓▓▒▒]
+│ [ TÜR ] │ Anzeige: DOCK LÖSEN?
+│ 🔒 Verriegelung │
+│ 👨‍🚀 │
+└───────────────────┘
+</pre></div>
+<p>Die Anzeigen surren. Nur eine Verriegelung trennt dich vom Cockpit.</p>
+<div class=“choices“>
+<label class=“btn good enter-safe“ for=“n-cockpit“>✅ Entsperren &amp; ins Cockpit</label>
+<label class=“btn danger enter-death“ for=“n-void“>⚠ Entsperren (Alarm aktiv!)</label>
+<label class=“btn“ for=“n-hangar“>← Abbrechen, zurück in den Hangar</label>
+</div>
+</section>
+
+<!– COCKPIT –>
+<section class=“scene“ id=“cockpit“>
+<h2>Shuttle B‑12 – Cockpit</h2>
+<div class=“ascii“><pre>
+╔══════════════════════════════════════════════╗
+║ NAV: 🧭 [ Koordinaten ] ║
+║ ENERG: 🔋 [ Zelle ] ║
+║ STATUS: Systeme stabil ║
+║ ║
+║ Konsole: [ FTL-SPRUNG ] ║
+║ [ ANDOCKEN ABBRECHEN ] ║
+║ 👨‍🚀 ║
+╚══════════════════════════════════════════════╝
+</pre></div>
+<p>Der Sprungantrieb summt erwartungsvoll. Wenn <em>Koordinaten</em> und <em>Energie</em> stimmen, geht’s los.</p>
+<div class=“choices“>
+<label class=“btn good start-good“ for=“n-jump“>✨ FTL‑Sprung starten</label>
+<label class=“btn danger start-bad“ for=“n-drift“>⚠ Starten (unvollständig)</label>
+<label class=“btn“ for=“n-hangar“>← Noch etwas vorbereiten</label>
+</div>
+<p class=“hint“>Sieh oben in den Zielen nach: Beide Häkchen nötig.</p>
+</section>
+
+<!– GUTES ENDE –>
+<section class=“scene“ id=“jump“>
+<h2>Sprung nach Elysium</h2>
+<div class=“jumpview“>
+<div class=“rocket“ aria-label=“Rakete“>
+🚀
+<div class=“flame“ aria-hidden=“true“></div>
+</div>
+</div>
+<p>Das Shuttle löst, beschleunigt, und der Raum knickt wie eine glänzende Folie. Die Station wird zu Schatten. <strong>Sebi</strong> legt Kurs auf den <em>ELYSIUM‑Knoten</em>. <span class=“hint“>Wenn du den Notruf gesendet hast, danken dir irgendwann Fremde.</span></p>
+<div class=“choices“>
+<label class=“btn“ for=“n-start“>↺ Nochmal spielen</label>
+</div>
+</section>
+
+<!– SCHLECHTES ENDE: DROHNEN –>
+<section class=“scene“ id=“caught“>
+<h2>Gefasst</h2>
+<div class=“ascii“><pre>
+[ *ZAP* ] [ *ZAP* ] [ *ZAP* ]
+👨‍🚀 → (taumelt) → (schwarz)
+</pre></div>
+<p>Die Drohnen sind schneller. Ein letzter Gedanke an Sterne. <strong>Ende.</strong></p>
+<div class=“choices“>
+<label class=“btn“ for=“n-start“>↺ Noch einmal von vorn</label>
+</div>
+</section>
+
+<!– SCHLECHTES ENDE: Dekompression –>
+<section class=“scene“ id=“void“>
+<h2>Dekompressionsschock</h2>
+<div class=“ascii“><pre>
+Luftschleuse öffnet gegen Sicherheitsprotokoll.
+Ein Ruck. Ein Schrei, der kein Geräusch findet.
+Die Sterne sind plötzlich überall.
+</pre></div>
+<p>Die Systeme halten dich für eine Gefahr. Der Alarm stößt die Luft aus der Schleuse – und dich gleich mit. <strong>Ende.</strong></p>
+<div class=“choices“>
+<label class=“btn“ for=“n-start“>↺ Noch einmal von vorn</label>
+</div>
+</section>
+
+<!– SCHLECHTES ENDE: Drift –>
+<section class=“scene“ id=“drift“>
+<h2>Verloren im Transit</h2>
+<div class=“ascii“><pre>
+. . . .
+. . .
+Kein Ziel. Keine Reichweite. Nur Sternenrauschen.
+</pre></div>
+<p>Ohne korrekte <em>Koordinaten</em> oder ohne <em>Energiezelle</em> verschluckt dich die Stille zwischen den Bahnen. <strong>Ende.</strong></p>
+<div class=“choices“>
+<label class=“btn“ for=“n-start“>↺ Noch einmal von vorn</label>
+</div>
+</section>
+
+<!– SCHLECHTES ENDE: Alien –>
+<section class=“scene“ id=“alien“>
+<h2>Die Kreatur</h2>
+<div class=“ascii“><pre>
+╔══════════════════════════════════════╗
+║ ╭━╮ ╭━╮ ║
+║ ╭━╯ ╰━━━╯ ╰━╮ ssssssk… ║
+║ ┃ (◣) (◢) ┃ (Atem) ║
+║ ╰┳━━━━━━━━━━┳╯ ║
+║ ╲ ╱ ╲ ╱ ──── ║
+║ ╲╱ ╲╱ 👨‍🚀 ║
+╚══════════════════════════════════════╝
+</pre></div>
+<p>Das Ding klemmt dich im Tunnel fest. Kein Störsender, keine Chance. <strong>Ende.</strong></p>
+<div class=“choices“>
+<label class=“btn“ for=“n-start“>↺ Noch einmal von vorn</label>
+</div>
+</section>
+
+<!– SCHLECHTES ENDE: Reaktorschmelze –>
+<section class=“scene“ id=“meltdown“>
+<h2>Überhitzung</h2>
+<div class=“ascii“><pre>
+WARNUNG WARNUNG WARNUNG
+Reaktorkern: ██████████ → SCHMELZE
+Notventile: VERSAGEN
+</pre></div>
+<p>Die Verriegelungen schnappen – zu spät. Ein weißes Licht, dann nichts mehr. <strong>Ende.</strong></p>
+<div class=“choices“>
+<label class=“btn“ for=“n-start“>↺ Noch einmal von vorn</label>
+</div>
+</section>
+
+</div><!– /scenes –>
+</form>
+</div><!– /wrap –>
+</body>
+</html>
