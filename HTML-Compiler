@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lokaler HTML-Editor & Preview</title>
+
+  <!-- csp strikt lokal -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' 'unsafe-inline';
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data:;
+                 connect-src 'none';
+                 frame-ancestors 'self';
+                 object-src 'none';
+                 base-uri 'none';">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0f172a;
+      color: #e5e7eb;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: auto; /* falls das Fenster kleiner ist als min-width */
+    }
+
+    header {
+      padding: 10px 16px;
+      background: #020617;
+      border-bottom: 1px solid #1f2937;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    header h1 { font-size: 16px; font-weight: 600; }
+    header .note { font-size: 12px; color: #9ca3af; }
+
+    #main {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+      min-width: 960px; /* Breite erhöht, nichts wird gequetscht */
+    }
+
+    #editor-container,
+    #preview-container {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      height: 100%;
+    }
+
+    /* Startverhältnis: 50 / 50 */
+    #editor-container {
+      flex: 0 0 50%;
+      border-right: 1px solid #1f2937;
+    }
+
+    #preview-container {
+      flex: 0 0 50%;
+    }
+
+    /* Divider in der Mitte */
+    #divider {
+      width: 5px;
+      cursor: col-resize;
+      background: #1f2937;
+      flex-shrink: 0;
+    }
+
+    #divider:hover {
+      background: #374151;
+    }
+
+    .panel-header {
+      padding: 8px 12px;
+      font-size: 12px;
+      background: #020617;
+      border-bottom: 1px solid #1f2937;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .panel-header span {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+      color: #9ca3af;
+    }
+
+    #code {
+      flex: 1;
+      width: 100%;
+      border: none;
+      outline: none;
+      padding: 10px;
+      font-family: "Fira Code", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+      line-height: 1.4;
+      background: #020617;
+      color: #e5e7eb;
+      resize: none;
+      tab-size: 2;
+    }
+
+    #preview {
+      flex: 1;
+      border: none;
+      background: #111827;
+      width: 100%;
+      pointer-events: auto;
+    }
+
+    button {
+      background: #10b981;
+      border: none;
+      color: #022c22;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button:hover { background: #22c55e; }
+    .smaller { font-size: 11px; }
+
+    /* Während des Draggen: Cursor & kein Text-Select */
+    body.resizing {
+      cursor: col-resize;
+      user-select: none;
+    }
+
+    /* Während des Draggen: iframe blockiert Mausereignisse vorsichtshalber,
+       Pointer-Capture sorgt aber sowieso dafür, dass alles am Divider landet */
+    body.resizing #preview {
+      pointer-events: none;
+    }
+
+    @media (max-width: 800px) {
+      /* Auf kleinen Screens werden die Bereiche untereinander gestapelt. */
+      #main {
+        flex-direction: column;
+        min-width: 0;
+      }
+      #editor-container {
+        border-right: none;
+        border-bottom: 1px solid #1f2937;
+        flex: 0 0 50vh;
+      }
+      #preview-container {
+        flex: 1;
+      }
+      #divider {
+        width: 100%;
+        height: 4px;
+        cursor: row-resize;
+      }
+      body.resizing {
+        cursor: row-resize;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Lokaler HTML-Editor & Vorschau</h1>
+    <div class="note">lokal · sandbox · CSP</div>
+  </header>
+
+  <div id="main">
+    <div id="editor-container">
+      <div class="panel-header">
+        <span>Code</span>
+        <div>
+          <button id="runBtn">Ausführen</button>
+          <span class="smaller" style="margin-left: 8px; color:#6b7280;">Strg+Enter</span>
+        </div>
+      </div>
+      <textarea id="code"></textarea>
+    </div>
+
+    <!-- Regler in der Mitte -->
+    <div id="divider"></div>
+
+    <div id="preview-container">
+      <div class="panel-header">
+        <span>Vorschau (sandbox)</span>
+      </div>
+
+      <!-- sandbox, no-referrer -->
+      <iframe id="preview"
+              sandbox="allow-scripts allow-forms allow-modals"
+              referrerpolicy="no-referrer"></iframe>
+    </div>
+  </div>
+
+  <script>
+    const textarea = document.getElementById("code");
+    const preview = document.getElementById("preview");
+    const runBtn = document.getElementById("runBtn");
+    const main = document.getElementById("main");
+    const editorContainer = document.getElementById("editor-container");
+    const previewContainer = document.getElementById("preview-container");
+    const divider = document.getElementById("divider");
+
+    const defaultCode = `<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Demo</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: radial-gradient(circle at top, #38bdf8, #0f172a);
+      color: #0f172a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+    }
+    h1 { font-size: 32px; }
+    p  { font-size: 18px; }
+    button {
+      border: none;
+      background: #0f172a;
+      color: #e5e7eb;
+      padding: 8px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hallo 👋</h1>
+  <p>Hier kannst du HTML, CSS und JavaScript ausprobieren.</p>
+  <button onclick="alert('Sandbox-Vorschau')">Klick mich</button>
+</body>
+</html>`;
+
+    textarea.value = defaultCode;
+
+    function updatePreview() {
+      preview.srcdoc = textarea.value;
+    }
+
+    runBtn.addEventListener("click", updatePreview);
+
+    textarea.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        updatePreview();
+      }
+    });
+
+    let typingTimer;
+    textarea.addEventListener("input", () => {
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(updatePreview, 400);
+    });
+
+    // Resizing-Logik mit Pointer Events
+    let isDragging = false;
+
+    divider.addEventListener("pointerdown", (e) => {
+      // Bei Maus nur linke Taste berücksichtigen
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+
+      isDragging = true;
+      document.body.classList.add("resizing");
+
+      // Pointer-Capture: alle weiteren Events (move/up) landen am Divider
+      divider.setPointerCapture(e.pointerId);
+    });
+
+    divider.addEventListener("pointerup", (e) => {
+      if (!isDragging) return;
+      isDragging = false;
+      document.body.classList.remove("resizing");
+      divider.releasePointerCapture(e.pointerId);
+    });
+
+    divider.addEventListener("pointercancel", (e) => {
+      if (!isDragging) return;
+      isDragging = false;
+      document.body.classList.remove("resizing");
+      divider.releasePointerCapture(e.pointerId);
+    });
+
+    divider.addEventListener("pointermove", (e) => {
+      if (!isDragging) return;
+
+      const rect = main.getBoundingClientRect();
+      const isMobile = window.matchMedia("(max-width: 800px)").matches;
+
+      if (!isMobile) {
+        // Horizontaler Split (Desktop)
+        let x = e.clientX - rect.left;
+        const min = 150; // Mindestbreite Editor/Preview
+        const max = rect.width - 150;
+        if (x < min) x = min;
+        if (x > max) x = max;
+
+        const percent = (x / rect.width) * 100;
+        editorContainer.style.flex = `0 0 ${percent}%`;
+        previewContainer.style.flex = `0 0 ${100 - percent}%`;
+      } else {
+        // Vertikaler Split (Mobile)
+        let y = e.clientY - rect.top;
+        const min = 100;
+        const max = rect.height - 100;
+        if (y < min) y = min;
+        if (y > max) y = max;
+
+        const percent = (y / rect.height) * 100;
+        editorContainer.style.flex = `0 0 ${percent}%`;
+        previewContainer.style.flex = `0 0 ${100 - percent}%`;
+      }
+    });
+
+    updatePreview();
+  </script>
+</body>
+</html>
